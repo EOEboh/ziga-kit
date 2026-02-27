@@ -37,9 +37,10 @@ db-reset: db-down ## Wipe volume and restart Postgres (destructive!)
 
 migrate: ## Apply all SQL migrations in order
 	@echo "🔄 Running migrations..."
-	@for f in migrations/*.sql; do \
+	@set -a && . ./.env && set +a && \
+	for f in migrations/*.sql; do \
 		echo "  → $$f"; \
-		psql "$(DATABASE_URL)" -f "$$f" --single-transaction; \
+		psql "$$DATABASE_URL" -f "$$f" --single-transaction; \
 	done
 	@echo "✅ Migrations complete"
 
