@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/EOEboh/ziga-kit/internal/config"
 	"github.com/EOEboh/ziga-kit/internal/db"
+	"github.com/EOEboh/ziga-kit/internal/handlers"
 )
 
 func main() {
@@ -38,20 +38,15 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
-	slog.Info("database connected", "dsn_host", maskDSN(cfg.DatabaseURL))
+	slog.Info("database connected")
 
 	// ── Router ────────────────────────────────────────────────────────────────
-	// Router setup will be wired here in step 3.
-	// For now, a minimal health-check server so you can confirm the stack runs.
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","env":%q}`, cfg.AppEnv)
-	})
+	router := handlers.NewRouter(pool, cfg)
 
+	// ── HTTP Server ───────────────────────────────────────────────────────────
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -62,7 +57,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		slog.Info("server starting", "port", cfg.Port)
+		slog.Info("server starting", "port", cfg.Port, "env", cfg.AppEnv)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
@@ -70,7 +65,7 @@ func main() {
 	}()
 
 	<-quit
-	slog.Info("shutdown signal received")
+	slog.Info("shutdown signal received — draining connections")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
@@ -80,13 +75,4 @@ func main() {
 	}
 
 	slog.Info("server stopped cleanly")
-}
-
-// maskDSN logs the host portion only — never log credentials.
-func maskDSN(dsn string) string {
-	// Simple: just confirm we have a non-empty DSN without printing secrets.
-	if len(dsn) > 0 {
-		return "[set]"
-	}
-	return "[empty]"
 }
